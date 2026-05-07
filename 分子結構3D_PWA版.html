@@ -1,0 +1,1246 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>高中化學 3D 分子結構瀏覽器</title>
+
+  <!-- ════ PWA 設定 ════════════════════════════════════════════════ -->
+  <meta name="theme-color" content="#0a0d14">
+  <meta name="mobile-web-app-capable" content="yes">
+  <!-- iOS Safari 專用 -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="分子結構3D">
+  <!-- manifest 由下方 JS 動態生成（單一檔案方案） -->
+  <link id="pwa-manifest" rel="manifest">
+
+  <!-- ════ Google AdSense ══════════════════════════════════════════
+       步驟：
+       1. 前往 https://www.google.com/adsense 申請帳號
+       2. 審核通過後，取得您的 Publisher ID（格式：ca-pub-XXXXXXXXXX）
+       3. 將下方 XXXXXXXXXX 替換成您的實際 ID
+       4. 在 AdSense 後台建立廣告單元，取得廣告 slot ID
+       5. 將下方 slot="0000000000" 替換成您的廣告 slot ID
+       ══════════════════════════════════════════════════════════════ -->
+  <!-- 取消下方注釋並填入您的 Publisher ID 後即可啟用 AdSense -->
+  <!--
+  <script async
+    src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-XXXXXXXXXX"
+    crossorigin="anonymous">
+  </script>
+  -->
+
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    html { height:100%; }
+    body {
+      height: 100%;
+      background: #0a0d14;
+      /* 預留底部廣告空間（AdSense 啟用後取消注釋） */
+      /* padding-bottom: 60px; */
+    }
+    #root { width:100%; height:100%; overflow:hidden; }
+
+    /* ── 載入畫面 ── */
+    #loading {
+      position:fixed; inset:0; background:#0a0d14; z-index:9999;
+      display:flex; flex-direction:column; align-items:center; justify-content:center;
+      gap:16px; color:#38bdf8; font-family:'Segoe UI',sans-serif;
+    }
+    .spin {
+      width:40px; height:40px; border:3px solid #1e2a3e;
+      border-top-color:#38bdf8; border-radius:50%;
+      animation:spin .8s linear infinite;
+    }
+    @keyframes spin{to{transform:rotate(360deg)}}
+
+    /* ── PWA 安裝浮動按鈕（右上角）── */
+    #pwa-install-fab {
+      display:none; position:fixed; top:12px; right:12px; z-index:2000;
+      background:linear-gradient(135deg,#1d4ed8,#2563eb);
+      color:#fff; border:none; border-radius:20px;
+      padding:8px 14px 8px 10px; font-size:12px; font-weight:700;
+      cursor:pointer; align-items:center; gap:6px;
+      box-shadow:0 4px 16px rgba(29,78,216,0.55);
+      font-family:'Segoe UI',sans-serif; white-space:nowrap;
+    }
+    #pwa-install-fab.show { display:flex; }
+    #pwa-install-fab:hover { background:linear-gradient(135deg,#1e40af,#1d4ed8); }
+    #pwa-dismiss-x {
+      background:none; border:none; color:rgba(255,255,255,0.6);
+      font-size:14px; cursor:pointer; padding:0 0 0 4px; line-height:1;
+    }
+
+    /* ── Google AdSense 底部橫幅 ── */
+    #ad-banner {
+      display:none; /* 啟用 AdSense 後改為 block */
+      position:fixed; bottom:0; left:0; right:0; z-index:900;
+      background:#0d1020; border-top:1px solid #1e2a3e;
+      height:60px; align-items:center; justify-content:center;
+      overflow:hidden;
+    }
+    /* AdSense 啟用後：#ad-banner { display:flex; } */
+  </style>
+</head>
+<body>
+  <div id="loading">
+    <div class="spin"></div>
+    <div style="font-size:15px;font-weight:700">載入中，請稍候...</div>
+    <div style="font-size:11px;color:#475569;text-align:center;padding:0 20px">
+      首次開啟需從網路載入函式庫<br>（需要網路連線，約 2–5 秒）
+    </div>
+  </div>
+
+  <div id="root"></div>
+
+  <!-- ════ PWA 安裝浮動按鈕（右上角）════════════════════════════ -->
+  <div id="pwa-install-fab" class="">
+    <span>⚗️</span><span>安裝 App</span>
+    <button id="pwa-dismiss-x" title="關閉">✕</button>
+  </div>
+
+  <!-- ════ Google AdSense 廣告橫幅 ═══════════════════════════════
+       填入您的 Publisher ID 和 slot ID 後，取消下方注釋並將
+       display:none 改為 display:flex
+       ════════════════════════════════════════════════════════════ -->
+  <div id="ad-banner">
+    <!--
+    <ins class="adsbygoogle"
+         style="display:block;width:100%;height:60px;"
+         data-ad-client="ca-pub-XXXXXXXXXX"
+         data-ad-slot="0000000000"
+         data-ad-format="banner"
+         data-full-width-responsive="true">
+    </ins>
+    <script>(adsbygoogle = window.adsbygoogle || []).push({});</script>
+    -->
+  </div>
+
+  <!-- 函式庫 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- PWA 設定腳本 -->
+  <script>
+    // ── 1. 動態產生 Manifest（讓單一 HTML 就能支援 PWA 安裝）──
+    const iconSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
+      <rect width="192" height="192" rx="40" fill="#0a0d14"/>
+      <text x="96" y="130" font-size="110" text-anchor="middle">⚗️</text>
+    </svg>`;
+    const iconUrl = 'data:image/svg+xml,' + encodeURIComponent(iconSvg);
+    const manifest = {
+      name: '高中化學 3D 分子結構瀏覽器',
+      short_name: '分子結構3D',
+      description: '高中化學分子 3D 結構互動瀏覽器，含 80+ 種分子',
+      start_url: location.href,
+      display: 'standalone',
+      orientation: 'any',
+      background_color: '#0a0d14',
+      theme_color: '#0a0d14',
+      lang: 'zh-TW',
+      icons: [
+        { src: iconUrl, sizes: '192x192', type: 'image/svg+xml' },
+        { src: iconUrl, sizes: '512x512', type: 'image/svg+xml', purpose: 'any maskable' }
+      ]
+    };
+    const mBlob = new Blob([JSON.stringify(manifest)], {type:'application/manifest+json'});
+    document.getElementById('pwa-manifest').href = URL.createObjectURL(mBlob);
+
+    // ── 2. Service Worker（快取功能，讓 App 可離線使用）──
+    if ('serviceWorker' in navigator) {
+      const sw = `
+        const CACHE='mol3d-v1';
+        const URLS=[
+          'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js',
+          'https://unpkg.com/react@18/umd/react.production.min.js',
+          'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js',
+          'https://unpkg.com/@babel/standalone/babel.min.js'
+        ];
+        self.addEventListener('install', e=>{
+          e.waitUntil(caches.open(CACHE).then(c=>c.addAll(URLS).catch(()=>{})));
+          self.skipWaiting();
+        });
+        self.addEventListener('activate', e=>{
+          e.waitUntil(caches.keys().then(ks=>Promise.all(
+            ks.filter(k=>k!==CACHE).map(k=>caches.delete(k))
+          )));
+          self.clients.claim();
+        });
+        self.addEventListener('fetch', e=>{
+          e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request).then(res=>{
+            if(res.ok){const c=res.clone();caches.open(CACHE).then(ca=>ca.put(e.request,c));}
+            return res;
+          }).catch(()=>r)));
+        });
+      `;
+      const swBlob = new Blob([sw], {type:'application/javascript'});
+      const swUrl = URL.createObjectURL(swBlob);
+      navigator.serviceWorker.register(swUrl).then(()=>URL.revokeObjectURL(swUrl)).catch(()=>{});
+    }
+
+    // ── 3. PWA 安裝提示邏輯（右上角浮動按鈕）──
+    let deferredPrompt = null;
+    const fab = document.getElementById('pwa-install-fab');
+    const fabDismiss = document.getElementById('pwa-dismiss-x');
+
+    window.addEventListener('beforeinstallprompt', e => {
+      e.preventDefault();
+      deferredPrompt = e;
+      fab.classList.add('show');
+    });
+    fab.addEventListener('click', e => {
+      if (e.target === fabDismiss) return;
+      fab.classList.remove('show');
+      if (deferredPrompt) { deferredPrompt.prompt(); deferredPrompt = null; }
+    });
+    fabDismiss.addEventListener('click', () => fab.classList.remove('show'));
+    window.addEventListener('appinstalled', () => { fab.classList.remove('show'); deferredPrompt = null; });
+  </script>
+
+  <!-- 主程式 -->
+  <script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef, useCallback } = React;
+
+/* ══════════════════════════ MATH ══════════════════════════════════ */
+const vn=v=>{const l=Math.sqrt(v[0]**2+v[1]**2+v[2]**2);return l>1e-9?v.map(x=>x/l):v};
+const va=(a,b)=>[a[0]+b[0],a[1]+b[1],a[2]+b[2]];
+const vs=(v,s)=>v.map(x=>x*s);
+const vc=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
+const vp=v=>{const n=vn(v);const r=Math.abs(n[1])<0.8?[0,1,0]:[1,0,0];return vn(vc(n,r))};
+const vsub=(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]];
+
+// Generate n tetrahedral positions around center.
+// "toward" = direction from center TOWARD an existing bonded neighbor.
+// Each generated position forms 109.47° with that direction.
+function T(center,toward,bl=1.09,n=3,ph=0){
+  const e1=vn(toward),e2=vp(e1),e3=vn(vc(e1,e2));
+  const ct=-1/3,st=Math.sqrt(8/9);
+  return Array.from({length:n},(_,k)=>{
+    const p=ph+k*2*Math.PI/3;
+    return va(center,vs([
+      ct*e1[0]+st*(Math.cos(p)*e2[0]+Math.sin(p)*e3[0]),
+      ct*e1[1]+st*(Math.cos(p)*e2[1]+Math.sin(p)*e3[1]),
+      ct*e1[2]+st*(Math.cos(p)*e2[2]+Math.sin(p)*e3[2])
+    ],bl));
+  });
+}
+
+// sp2 group direction constants (xy plane)
+// C=O at +y (90°), substituents at 210° and 330°
+const D210=[Math.cos(7*Math.PI/6),Math.sin(7*Math.PI/6),0]; // (-0.866,-0.500, 0)
+const D330=[Math.cos(11*Math.PI/6),Math.sin(11*Math.PI/6),0]; // ( 0.866,-0.500, 0)
+const D60 =Math.PI/3;
+
+/* ══════════════════════════ ELEMENTS ══════════════════════════════ */
+const EL={
+  H:{col:0xE8E8E8,r:0.28,zh:'氫 H'}, C:{col:0x282828,r:0.37,zh:'碳 C'},
+  N:{col:0x2244EE,r:0.36,zh:'氮 N'}, O:{col:0xFF1100,r:0.34,zh:'氧 O'},
+  F:{col:0x33AA33,r:0.30,zh:'氟 F'}, Cl:{col:0x22CC22,r:0.45,zh:'氯 Cl'},
+  Br:{col:0xBB2200,r:0.50,zh:'溴 Br'},I:{col:0x881188,r:0.60,zh:'碘 I'},
+  S:{col:0xDDCC00,r:0.53,zh:'硫 S'}, P:{col:0xFF8000,r:0.55,zh:'磷 P'},
+};
+
+/* ══════════════════════════ PACKAGING ═════════════════════════════ */
+function pkg(name,formula,note,atoms,bonds){
+  const n=atoms.length;
+  const cx=atoms.reduce((s,a)=>s+a[1],0)/n;
+  const cy=atoms.reduce((s,a)=>s+a[2],0)/n;
+  const cz=atoms.reduce((s,a)=>s+a[3],0)/n;
+  return{name,formula,note,
+    atoms:atoms.map(([e,x,y,z])=>[e,+(x-cx).toFixed(4),+(y-cy).toFixed(4),+(z-cz).toFixed(4)]),
+    bonds};
+}
+
+/* ══════════════════════════ CHAIN HELPERS ═════════════════════════ */
+// Zigzag C positions in xz plane. C[i] at (i*1.277, 0, (i%2)*0.861)
+function zigC(n){return Array.from({length:n},(_,i)=>[i*1.277,0,(i%2)*0.861]);}
+
+// For an internal sp3 carbon at pos[i] with chain neighbors at pos[i-1] and pos[i+1],
+// returns 2 H positions (above/below the xz plane).
+// Uses geometric sum: d1+d2+dH1+dH2=0, so dH1=(0,+hy,hz), dH2=(0,-hy,hz)
+function internalCH2(Ci,prevPos,nextPos){
+  const d1=vn(vsub(prevPos,Ci)),d2=vn(vsub(nextPos,Ci));
+  const s=va(d1,d2); // ≈ (0, 0, ±1.118)
+  const hz=-s[2]/2; const hy=Math.sqrt(Math.max(0,1-hz*hz));
+  return[[Ci[0],hy*1.09,Ci[2]+hz*1.09],[Ci[0],-hy*1.09,Ci[2]+hz*1.09]];
+}
+
+// Add H atoms to all carbons in a zigzag chain, skipping indices in skipSet.
+// Terminal C → 3H, Internal C → 2H
+function addChainH(atoms,bonds,pos,skipSet){
+  const n=pos.length;
+  for(let i=0;i<n;i++){
+    if(skipSet&&skipSet.has(i)) continue;
+    const ci=i; // carbon index in atoms[] matches chain index if no extra atoms before chain
+    if(i===0||i===n-1){
+      const nbr=pos[i===0?1:n-2];
+      T(pos[i],vn(vsub(nbr,pos[i])),1.09,3).forEach(h=>{bonds.push([ci,atoms.length,1]);atoms.push(['H',...h]);});
+    }else{
+      internalCH2(pos[i],pos[i-1],pos[i+1]).forEach(h=>{bonds.push([ci,atoms.length,1]);atoms.push(['H',...h]);});
+    }
+  }
+}
+
+/* ══════════════════════════ ALKANE BUILDER ════════════════════════ */
+function mkAlkane(n,name,formula,note){
+  const pos=zigC(n),atoms=[],bonds=[];
+  pos.forEach(p=>atoms.push(['C',...p]));
+  for(let i=0;i<n-1;i++) bonds.push([i,i+1,1]);
+  addChainH(atoms,bonds,pos,null);
+  return pkg(name,formula,note,atoms,bonds);
+}
+
+/* ══════════════════════════ ALCOHOL BUILDERS ══════════════════════ */
+// Primary 1-alkanol: OH on terminal C[0]
+function mk1Alcohol(n,name,formula,note){
+  const pos=zigC(n),atoms=[],bonds=[];
+  pos.forEach(p=>atoms.push(['C',...p]));
+  for(let i=0;i<n-1;i++) bonds.push([i,i+1,1]);
+  if(n===1){
+    // Methanol: place O directly along +x so C has 4 proper tetrahedral bonds
+    const O=[1.43,0,0];
+    const oI=atoms.length; bonds.push([0,oI,1]); atoms.push(['O',...O]);
+    bonds.push([oI,atoms.length,1]); atoms.push(['H',...T(O,[-1,0,0],0.96,1,0)[0]]);
+    // 3H on C at 109.5° from C→O direction
+    T(pos[0],[1,0,0],1.09,3).forEach(h=>{bonds.push([0,atoms.length,1]);atoms.push(['H',...h]);});
+    return pkg(name,formula,note,atoms,bonds);
+  }
+  // n≥2: OH on C[0]
+  const tw=vn(vsub(pos[1],pos[0]));
+  const O=T(pos[0],tw,1.43,1,0)[0]; // O at tetrahedral phi=0
+  const oI=atoms.length; bonds.push([0,oI,1]); atoms.push(['O',...O]);
+  const H_O=T(O,vn(vsub(pos[0],O)),0.96,1,0)[0];
+  bonds.push([oI,atoms.length,1]); atoms.push(['H',...H_O]);
+  T(pos[0],tw,1.09,2,2*Math.PI/3).forEach(h=>{bonds.push([0,atoms.length,1]);atoms.push(['H',...h]);}); // 2H on C[0]
+  addChainH(atoms,bonds,pos,new Set([0])); // 3H on terminal, 2H on internal (skip C[0])
+  return pkg(name,formula,note,atoms,bonds);
+}
+
+// Secondary 2-alkanol: OH on C[1] (n≥3)
+function mk2Alcohol(n,name,formula,note){
+  const pos=zigC(n),atoms=[],bonds=[];
+  pos.forEach(p=>atoms.push(['C',...p]));
+  for(let i=0;i<n-1;i++) bonds.push([i,i+1,1]);
+  // OH on C[1] using symmetric placement
+  const d1=vn(vsub(pos[0],pos[1])),d2=vn(vsub(pos[2],pos[1]));
+  const s=va(d1,d2); const hz=-s[2]/2; const hy=Math.sqrt(Math.max(0,1-hz*hz));
+  const O=va(pos[1],vs([0,hy,hz],1.43));
+  const H_c=va(pos[1],vs([0,-hy,hz],1.09));
+  const oI=atoms.length; bonds.push([1,oI,1]); atoms.push(['O',...O]);
+  bonds.push([oI,atoms.length,1]); atoms.push(['H',...T(O,vn(vsub(pos[1],O)),0.96,1,0)[0]]);
+  bonds.push([1,atoms.length,1]); atoms.push(['H',...H_c]);
+  addChainH(atoms,bonds,pos,new Set([1]));
+  return pkg(name,formula,note,atoms,bonds);
+}
+
+/* ══════════════════════════ SP2 CHAIN HELPER ══════════════════════ */
+// Cleaner sp2 chain: returns {chain:[], startIdx} where startIdx is atoms index of first chain C
+function sp2chain(sp2C,dir,nC,sp2cIdx,atoms,bonds){
+  const chain=[];
+  const startIdx=atoms.length;
+  const C1=va(sp2C,vs(dir,1.52));
+  chain.push(C1);atoms.push(['C',...C1]);bonds.push([sp2cIdx,startIdx,1]);
+  for(let k=1;k<nC;k++){
+    const prev=chain[k-1];
+    const tw=vn(vsub(k===1?sp2C:chain[k-2],prev));
+    const nextC=T(prev,tw,1.54,1,0)[0];
+    chain.push(nextC);atoms.push(['C',...nextC]);bonds.push([atoms.length-2,atoms.length-1,1]);
+  }
+  // H on each chain C
+  for(let k=0;k<nC;k++){
+    const Ci=chain[k];const ci=startIdx+k;
+    const prev=k===0?sp2C:chain[k-1];
+    const tw=vn(vsub(prev,Ci));
+    const isLast=k===nC-1;
+    T(Ci,tw,1.09,isLast?3:2,isLast?0:2*Math.PI/3).forEach(h=>{bonds.push([ci,atoms.length,1]);atoms.push(['H',...h]);});
+  }
+  return chain;
+}
+
+/* ══════════════════════════ ALDEHYDE BUILDER ══════════════════════ */
+// n = total C count (1=formaldehyde, 2=acetaldehyde, ...)
+function mkAldehyde(n,name,formula,note){
+  if(n===1) return pkg(name,formula,note,
+    [['C',0,0,0],['O',0,1.21,0],['H',0.966,-0.558,0],['H',-0.966,-0.558,0]],
+    [[0,1,2],[0,2,1],[0,3,1]]);
+  const atoms=[],bonds=[];
+  atoms.push(['C',0,0,0],['O',0,1.22,0],['H',...vs(D330,1.09)]); // 0=sp2C, 1=O, 2=Hald
+  bonds.push([0,1,2],[0,2,1]);
+  sp2chain([0,0,0],D210,n-1,0,atoms,bonds);
+  return pkg(name,formula,note,atoms,bonds);
+}
+
+/* ══════════════════════════ KETONE BUILDER ════════════════════════ */
+// nL = left chain C count, nR = right chain C count
+function mkKetone(nL,nR,name,formula,note){
+  const atoms=[],bonds=[];
+  atoms.push(['C',0,0,0],['O',0,1.22,0]); bonds.push([0,1,2]);
+  sp2chain([0,0,0],D210,nL,0,atoms,bonds);
+  sp2chain([0,0,0],D330,nR,0,atoms,bonds);
+  return pkg(name,formula,note,atoms,bonds);
+}
+
+/* ══════════════════════════ ACID BUILDER ══════════════════════════ */
+// n = total C count (1=formic, 2=acetic, ...)
+function mkAcid(n,name,formula,note){
+  const atoms=[],bonds=[];
+  const Ooh=vs(D210,1.34); const Hoh=va(Ooh,vs(D210,0.97));
+  atoms.push(['C',0,0,0],['O',0,1.23,0],['O',...Ooh],['H',...Hoh]);
+  bonds.push([0,1,2],[0,2,1],[2,3,1]);
+  if(n===1){atoms.push(['H',...vs(D330,1.09)]);bonds.push([0,4,1]);}
+  else sp2chain([0,0,0],D330,n-1,0,atoms,bonds);
+  return pkg(name,formula,note,atoms,bonds);
+}
+
+/* ══════════════════════════ ESTER BUILDER ═════════════════════════ */
+// nAcyl = acyl chain length (including sp2 C), nAlk = alkoxy chain length
+function mkEster(nAcyl,nAlk,name,formula,note){
+  const atoms=[],bonds=[];
+  const Oe=vs(D210,1.34);
+  atoms.push(['C',0,0,0],['O',0,1.22,0],['O',...Oe]);
+  bonds.push([0,1,2],[0,2,1]);
+  // Acyl chain at 330°
+  if(nAcyl===1){atoms.push(['H',...vs(D330,1.09)]);bonds.push([0,atoms.length-1,1]);}
+  else sp2chain([0,0,0],D330,nAcyl-1,0,atoms,bonds);
+  // Alkoxy chain from ester O at 210°
+  sp2chain(Oe,D210,nAlk,2,atoms,bonds);
+  return pkg(name,formula,note,atoms,bonds);
+}
+
+/* ══════════════════════════ ETHER BUILDER ═════════════════════════ */
+function mkEther(n1,n2,name,formula,note){
+  const pos1=zigC(n1),pos2=zigC(n2);
+  const atoms=[],bonds=[];
+  // O at origin, C1-chain at left, C2-chain at right, angle ~112°
+  const ang=56*Math.PI/180;
+  const d1=[-Math.sin(ang),0,-Math.cos(ang)],d2=[Math.sin(ang),0,-Math.cos(ang)];
+  atoms.push(['O',0,0,0]);
+  // chain1: C positions attached to O at d1 direction
+  const chain1=[va([0,0,0],vs(d1,1.43))];
+  atoms.push(['C',...chain1[0]]);bonds.push([0,1,1]);
+  for(let k=1;k<n1;k++){
+    const tw=vn(vsub(k===1?[0,0,0]:chain1[k-2],chain1[k-1]));
+    const nextC=T(chain1[k-1],tw,1.54,1,0)[0];
+    chain1.push(nextC);atoms.push(['C',...nextC]);bonds.push([atoms.length-2,atoms.length-1,1]);
+  }
+  // chain2
+  const chain2=[va([0,0,0],vs(d2,1.43))];
+  const c2Start=atoms.length;
+  atoms.push(['C',...chain2[0]]);bonds.push([0,c2Start,1]);
+  for(let k=1;k<n2;k++){
+    const tw=vn(vsub(k===1?[0,0,0]:chain2[k-2],chain2[k-1]));
+    const nextC=T(chain2[k-1],tw,1.54,1,0)[0];
+    chain2.push(nextC);atoms.push(['C',...nextC]);bonds.push([atoms.length-2,atoms.length-1,1]);
+  }
+  // H on chain1
+  for(let k=0;k<n1;k++){
+    const Ci=chain1[k],ci=1+k;
+    const prev=k===0?[0,0,0]:chain1[k-1];
+    const tw=vn(vsub(prev,Ci));
+    T(Ci,tw,1.09,k===n1-1?3:2,k===n1-1?0:2*Math.PI/3).forEach(h=>{bonds.push([ci,atoms.length,1]);atoms.push(['H',...h]);});
+  }
+  // H on chain2
+  for(let k=0;k<n2;k++){
+    const Ci=chain2[k],ci=c2Start+k;
+    const prev=k===0?[0,0,0]:chain2[k-1];
+    const tw=vn(vsub(prev,Ci));
+    T(Ci,tw,1.09,k===n2-1?3:2,k===n2-1?0:2*Math.PI/3).forEach(h=>{bonds.push([ci,atoms.length,1]);atoms.push(['H',...h]);});
+  }
+  return pkg(name,formula,note,atoms,bonds);
+}
+
+/* ══════════════════════════ BENZENE BUILDER ═══════════════════════ */
+// subs[6]: 'H'|'CH3'|'C2H5'|'OH'|'F'|'Cl'|'Br'|'NO2'|'CHO'|'COOH'|'NH2'
+function benzPkg(name,formula,note,subs){
+  const R=1.40,atoms=[],bonds=[];
+  for(let i=0;i<6;i++){const a=i*Math.PI/3;atoms.push(['C',R*Math.cos(a),0,R*Math.sin(a)]);}
+  for(let i=0;i<6;i++) bonds.push([i,(i+1)%6,i%2===0?2:1]);
+  for(let i=0;i<6;i++){
+    const a=i*Math.PI/3,cp=[R*Math.cos(a),0,R*Math.sin(a)],rd=[Math.cos(a),0,Math.sin(a)];
+    const sub=(subs&&subs[i])||'H',xi=atoms.length;
+    if(sub==='H'){
+      atoms.push(['H',...va(cp,vs(rd,1.09))]);bonds.push([i,xi,1]);
+    }else if(sub==='CH3'){
+      const mc=va(cp,vs(rd,1.51));atoms.push(['C',...mc]);bonds.push([i,xi,1]);
+      // FIX: toward = direction from methyl C TOWARD ring C = -rd (not +rd)
+      T(mc,vs(rd,-1),1.09,3).forEach(h=>{bonds.push([xi,atoms.length,1]);atoms.push(['H',...h]);});
+    }else if(sub==='C2H5'){
+      const Ca=va(cp,vs(rd,1.51));atoms.push(['C',...Ca]);bonds.push([i,xi,1]);
+      // Cb at tetrahedral from Ca toward ring C: toward = -rd (from Ca toward ring)
+      const Cb=T(Ca,vs(rd,-1),1.54,1,0)[0];atoms.push(['C',...Cb]);bonds.push([xi,xi+1,1]);
+      T(Ca,vs(rd,-1),1.09,2,2*Math.PI/3).forEach(h=>{bonds.push([xi,atoms.length,1]);atoms.push(['H',...h]);});
+      T(Cb,vn(vsub(Ca,Cb)),1.09,3).forEach(h=>{bonds.push([xi+1,atoms.length,1]);atoms.push(['H',...h]);});
+    }else if(sub==='OH'){
+      const op=va(cp,vs(rd,1.36));atoms.push(['O',...op]);bonds.push([i,xi,1]);
+      atoms.push(['H',...va(op,vs(vn([rd[0]*0.35,0.93,rd[2]*0.35]),0.96))]);bonds.push([xi,xi+1,1]);
+    }else if(sub==='F'){
+      atoms.push(['F',...va(cp,vs(rd,1.35))]);bonds.push([i,xi,1]);
+    }else if(sub==='Cl'){
+      atoms.push(['Cl',...va(cp,vs(rd,1.74))]);bonds.push([i,xi,1]);
+    }else if(sub==='Br'){
+      atoms.push(['Br',...va(cp,vs(rd,1.90))]);bonds.push([i,xi,1]);
+    }else if(sub==='NO2'){
+      const np=va(cp,vs(rd,1.48));atoms.push(['N',...np]);bonds.push([i,xi,1]);
+      atoms.push(['O',...va(np,[1.22*Math.cos(a+D60),0,1.22*Math.sin(a+D60)])]);bonds.push([xi,xi+1,2]); // N=O double
+      atoms.push(['O',...va(np,[1.22*Math.cos(a-D60),0,1.22*Math.sin(a-D60)])]);bonds.push([xi,xi+2,1]); // N-O single
+    }else if(sub==='CHO'){
+      const Cc=va(cp,vs(rd,1.47));atoms.push(['C',...Cc]);bonds.push([i,xi,1]);
+      atoms.push(['O',...va(Cc,[1.22*Math.cos(a-D60),0,1.22*Math.sin(a-D60)])]);bonds.push([xi,xi+1,2]);
+      atoms.push(['H',...va(Cc,[1.09*Math.cos(a+D60),0,1.09*Math.sin(a+D60)])]);bonds.push([xi,xi+2,1]);
+    }else if(sub==='COOH'){
+      const Cc=va(cp,vs(rd,1.47));atoms.push(['C',...Cc]);bonds.push([i,xi,1]);
+      const ddo=[Math.cos(a-D60),0,Math.sin(a-D60)],doh=[Math.cos(a+D60),0,Math.sin(a+D60)];
+      const Ooh=va(Cc,vs(doh,1.34));
+      atoms.push(['O',...va(Cc,vs(ddo,1.22))]);bonds.push([xi,xi+1,2]);
+      atoms.push(['O',...Ooh]);bonds.push([xi,xi+2,1]);
+      atoms.push(['H',...va(Ooh,vs(doh,0.97))]);bonds.push([xi+2,xi+3,1]);
+    }else if(sub==='NH2'){
+      const np=va(cp,vs(rd,1.40));atoms.push(['N',...np]);bonds.push([i,xi,1]);
+      atoms.push(['H',...va(np,vs(vn([rd[0],1.2,rd[2]+0.4]),1.01))]);bonds.push([xi,xi+1,1]);
+      atoms.push(['H',...va(np,vs(vn([rd[0],1.2,rd[2]-0.4]),1.01))]);bonds.push([xi,xi+2,1]);
+    }
+  }
+  return pkg(name,formula,note,atoms,bonds);
+}
+
+/* ══════════════════════════ MOLECULE DATABASE ═════════════════════ */
+const CAT={};
+function add(cat,m){if(!CAT[cat])CAT[cat]=[];CAT[cat].push(m);}
+const H=new Array(6).fill('H');
+const sub6=(s,p)=>H.map((h,i)=>i===p?s:h);
+const sub6_2=(s1,p1,s2,p2)=>H.map((_,i)=>i===p1?s1:i===p2?s2:'H');
+
+/* ─── 無機小分子 ──────────────────────────────────────────────── */
+add('無機小分子',pkg('水','H₂O','V形，鍵角104.5°，O-H⋯O分子間氫鍵，沸點100°C',
+  [['O',0,0,0],['H',0.757,-0.586,0],['H',-0.757,-0.586,0]],[[0,1,1],[0,2,1]]));
+add('無機小分子',pkg('氨','NH₃','三角錐形，鍵角107°，N-H⋯N氫鍵，沸點-33°C',
+  [['N',0,0.1,0],['H',0.940,-0.250,0],['H',-0.470,-0.250,0.814],['H',-0.470,-0.250,-0.814]],
+  [[0,1,1],[0,2,1],[0,3,1]]));
+add('無機小分子',pkg('氟化氫','HF','線型，F-H⋯F最強氫鍵，沸點19°C (電子數10)',
+  [['H',0,0,0],['F',0.917,0,0]],[[0,1,1]]));
+add('無機小分子',pkg('氯化氫','HCl','線型，極性，沸點-85°C (電子數18)',
+  [['H',0,0,0],['Cl',1.274,0,0]],[[0,1,1]]));
+add('無機小分子',pkg('溴化氫','HBr','線型，沸點-67°C (電子數36)',
+  [['H',0,0,0],['Br',1.408,0,0]],[[0,1,1]]));
+add('無機小分子',pkg('碘化氫','HI','線型，電子數最多(54)，沸點-35°C',
+  [['H',0,0,0],['I',1.609,0,0]],[[0,1,1]]));
+add('無機小分子',pkg('氰化氫','HCN','線型，sp混成碳，特殊C-H氫鍵，沸點26°C',
+  [['H',0,0,0],['C',1.066,0,0],['N',2.219,0,0]],[[0,1,1],[1,2,3]]));
+add('無機小分子',pkg('氯氣','Cl₂','非極性，34個電子，倫敦力強，沸點-34°C',
+  [['Cl',-0.997,0,0],['Cl',0.997,0,0]],[[0,1,1]]));
+
+/* ─── 烷烴 (含甲烷，C1-C5) ───────────────────────────────────── */
+add('烷烴',pkg('甲烷','CH₄','正四面體，鍵角109.5°，sp³',
+  [['C',0,0,0],['H',0.629,0.629,0.629],['H',-0.629,-0.629,0.629],['H',-0.629,0.629,-0.629],['H',0.629,-0.629,-0.629]],
+  [[0,1,1],[0,2,1],[0,3,1],[0,4,1]]));
+add('烷烴',mkAlkane(2,'乙烷','C₂H₆','sp³，C-C單鍵，沸點-89°C'));
+add('烷烴',mkAlkane(3,'丙烷','C₃H₈','三碳鏈，沸點-42°C'));
+add('烷烴',mkAlkane(4,'正丁烷','n-C₄H₁₀','四碳鏈，沸點-1°C'));
+{
+  const C=[0,0,0],dirs=[[1,1,1],[-1,-1,1],[-1,1,-1]].map(p=>vn(p));
+  const tet=dirs.map(d=>vs(d,1.54)),Hc=vs(vn([1,-1,-1]),1.09);
+  const atoms=[['C',...C],['H',...Hc],...tet.map(p=>['C',...p])];
+  const bonds=[[0,1,1],[0,2,1],[0,3,1],[0,4,1]];
+  tet.forEach((Ci,k)=>T(Ci,vn(vsub(C,Ci)),1.09,3).forEach(h=>{bonds.push([2+k,atoms.length,1]);atoms.push(['H',...h]);}));
+  add('烷烴',pkg('異丁烷','i-C₄H₁₀','(CH₃)₃CH，支鏈，沸點-12°C',atoms,bonds));
+}
+add('烷烴',mkAlkane(5,'正戊烷','n-C₅H₁₂','五碳鏈，沸點36°C'));
+{
+  // Isopentane: C_branch at pos[1], extra methyl
+  const pos=zigC(4);
+  const atoms=[],bonds=[];
+  pos.forEach(p=>atoms.push(['C',...p]));
+  for(let i=0;i<3;i++) bonds.push([i,i+1,1]);
+  // Branch methyl on C[1]
+  const d1=vn(vsub(pos[0],pos[1])),d2=vn(vsub(pos[2],pos[1]));
+  const s=va(d1,d2);const hz=-s[2]/2;const hy=Math.sqrt(Math.max(0,1-hz*hz));
+  const Cm=va(pos[1],vs([0,hy,hz],1.54));
+  const cmIdx=atoms.length;atoms.push(['C',...Cm]);bonds.push([1,cmIdx,1]);
+  const H1c=va(pos[1],vs([0,-hy,hz],1.09));bonds.push([1,atoms.length,1]);atoms.push(['H',...H1c]);
+  T(Cm,vn(vsub(pos[1],Cm)),1.09,3).forEach(h=>{bonds.push([cmIdx,atoms.length,1]);atoms.push(['H',...h]);});
+  // Terminal C[0] and C[3]: 3H each
+  [0,3].forEach(i=>{const tw=vn(vsub(pos[i===0?1:2],pos[i]));T(pos[i],tw,1.09,3).forEach(h=>{bonds.push([i,atoms.length,1]);atoms.push(['H',...h]);});});
+  // C[2]: internal, neighbors C[1] and C[3]
+  internalCH2(pos[2],pos[1],pos[3]).forEach(h=>{bonds.push([2,atoms.length,1]);atoms.push(['H',...h]);});
+  add('烷烴',pkg('異戊烷','i-C₅H₁₂','2-甲基丁烷，支鏈，沸點28°C',atoms,bonds));
+}
+{
+  const C=[0,0,0],tet=[[1,1,1],[-1,-1,1],[-1,1,-1],[1,-1,-1]].map(p=>vs(vn(p),1.54));
+  const atoms=[['C',...C],...tet.map(p=>['C',...p])];
+  const bonds=tet.map((_,k)=>[0,k+1,1]);
+  tet.forEach((Ci,k)=>T(Ci,vn(vsub(C,Ci)),1.09,3).forEach(h=>{bonds.push([k+1,atoms.length,1]);atoms.push(['H',...h]);}));
+  add('烷烴',pkg('新戊烷','neo-C₅H₁₂','C(CH₃)₄，高度對稱，沸點9.5°C',atoms,bonds));
+}
+
+/* ─── 烯烴與炔烴 ───────────────────────────────────────────── */
+{
+  const C1=[-0.67,0,0],C2=[0.67,0,0],c=Math.cos(121.2*Math.PI/180),s=Math.sin(121.2*Math.PI/180);
+  add('烯烴與炔烴',pkg('乙烯','C₂H₄','sp²，C=C雙鍵，平面，鍵角120°',
+    [['C',...C1],['C',...C2],['H',...va(C1,vs([c,0,s],1.086))],['H',...va(C1,vs([c,0,-s],1.086))],
+     ['H',...va(C2,vs([-c,0,s],1.086))],['H',...va(C2,vs([-c,0,-s],1.086))]],
+    [[0,1,2],[0,2,1],[0,3,1],[1,4,1],[1,5,1]]));
+}
+add('烯烴與炔烴',pkg('乙炔','C₂H₂','sp，C≡C三鍵，線型',
+  [['H',-1.663,0,0],['C',-0.597,0,0],['C',0.597,0,0],['H',1.663,0,0]],[[0,1,1],[1,2,3],[2,3,1]]));
+{
+  // Propene: CH2=CH-CH3
+  const C1=[-0.67,0,0],C2=[0.67,0,0],c=Math.cos(121.2*Math.PI/180),s=Math.sin(121.2*Math.PI/180);
+  const C3=va(C2,vs([0.5,0,0.866],1.51));
+  const H_c2=va(C2,vs([0.5,0,-0.866],1.086));
+  const hC3=T(C3,vn(vsub(C2,C3)),1.09,3);
+  add('烯烴與炔烴',pkg('丙烯','C₃H₆','不對稱烯烴，沸點-47°C',
+    [['C',...C1],['C',...C2],['C',...C3],['H',...va(C1,vs([c,0,s],1.086))],
+     ['H',...va(C1,vs([c,0,-s],1.086))],['H',...H_c2],...hC3.map(h=>['H',...h])],
+    [[0,1,2],[0,3,1],[0,4,1],[1,5,1],[1,2,1],[2,6,1],[2,7,1],[2,8,1]]));
+}
+{
+  // 1-butene: CH2=CH-CH2-CH3
+  const C1=[-0.67,0,0],C2=[0.67,0,0],c=Math.cos(121.2*Math.PI/180),s=Math.sin(121.2*Math.PI/180);
+  const C3=va(C2,vs([0.5,0,0.866],1.51));
+  const tw3=vn(vsub(C2,C3));
+  const C4=T(C3,tw3,1.54,1,0)[0];
+  const H_c2=va(C2,vs([0.5,0,-0.866],1.086));
+  const H3a=T(C3,tw3,1.09,1,2*Math.PI/3)[0],H3b=T(C3,tw3,1.09,1,4*Math.PI/3)[0];
+  const hC4=T(C4,vn(vsub(C3,C4)),1.09,3);
+  add('烯烴與炔烴',pkg('1-丁烯','1-C₄H₈','端基烯烴，C=C在鏈端，沸點-6°C',
+    [['C',...C1],['C',...C2],['C',...C3],['C',...C4],
+     ['H',...va(C1,vs([c,0,s],1.086))],['H',...va(C1,vs([c,0,-s],1.086))],
+     ['H',...H_c2],['H',...H3a],['H',...H3b],...hC4.map(h=>['H',...h])],
+    [[0,1,2],[0,4,1],[0,5,1],[1,6,1],[1,2,1],[2,3,1],[2,7,1],[2,8,1],[3,9,1],[3,10,1],[3,11,1]]));
+}
+{
+  // 1-pentene: CH2=CH-CH2-CH2-CH3
+  const C1=[-0.67,0,0],C2=[0.67,0,0],c=Math.cos(121.2*Math.PI/180),s=Math.sin(121.2*Math.PI/180);
+  const C3=va(C2,vs([0.5,0,0.866],1.51));
+  const tw3=vn(vsub(C2,C3));const C4=T(C3,tw3,1.54,1,0)[0];
+  const C5=T(C4,vn(vsub(C3,C4)),1.54,1,0)[0];
+  const H_c2=va(C2,vs([0.5,0,-0.866],1.086));
+  const H3a=T(C3,tw3,1.09,1,2*Math.PI/3)[0],H3b=T(C3,tw3,1.09,1,4*Math.PI/3)[0];
+  const d34=vn(vsub(C3,C4));const H4a=T(C4,d34,1.09,1,2*Math.PI/3)[0],H4b=T(C4,d34,1.09,1,4*Math.PI/3)[0];
+  const hC5=T(C5,vn(vsub(C4,C5)),1.09,3);
+  add('烯烴與炔烴',pkg('1-戊烯','1-C₅H₁₀','五碳端基烯烴，沸點30°C',
+    [['C',...C1],['C',...C2],['C',...C3],['C',...C4],['C',...C5],
+     ['H',...va(C1,vs([c,0,s],1.086))],['H',...va(C1,vs([c,0,-s],1.086))],
+     ['H',...H_c2],['H',...H3a],['H',...H3b],['H',...H4a],['H',...H4b],...hC5.map(h=>['H',...h])],
+    [[0,1,2],[0,5,1],[0,6,1],[1,7,1],[1,2,1],[2,3,1],[2,8,1],[2,9,1],[3,4,1],[3,10,1],[3,11,1],[4,12,1],[4,13,1],[4,14,1]]));
+}
+
+/* ─── 苯環與芳香烴 ──────────────────────────────────────────── */
+add('苯環與芳香烴',benzPkg('苯','C₆H₆','正六邊形，sp²，共振，非極性，沸點80°C',H));
+add('苯環與芳香烴',benzPkg('甲苯','C₆H₅CH₃','苯+甲基，非極性，沸點111°C',sub6('CH3',0)));
+add('苯環與芳香烴',benzPkg('乙苯','C₆H₅C₂H₅','苯+乙基，沸點136°C',sub6('C2H5',0)));
+{
+  // Styrene: benzene ring + vinyl group CH=CH2 at C[0]
+  // Ring in xz plane. Vinyl extends from C[0] (at +x) with proper sp2 120° geometry.
+  const R=1.40,atoms=[],bonds=[];
+  for(let i=0;i<6;i++){const a=i*Math.PI/3;atoms.push(['C',R*Math.cos(a),0,R*Math.sin(a)]);}
+  for(let i=0;i<6;i++) bonds.push([i,(i+1)%6,i%2===0?2:1]);
+  // H on ring carbons 1–5
+  for(let i=1;i<6;i++){const a=i*Math.PI/3;atoms.push(['H',(R+1.09)*Math.cos(a),0,(R+1.09)*Math.sin(a)]);bonds.push([i,atoms.length-1,1]);}
+  // Vinyl group: Cv1 (sp2) bonded to ring C[0] (rd=[1,0,0], cp=[R,0,0])
+  const cp=[R,0,0];
+  const Cv1=va(cp,[1.47,0,0]); // along +x from ring C[0]
+  const cv1I=atoms.length; atoms.push(['C',...Cv1]); bonds.push([0,cv1I,1]);
+  // Cv2: at 60° from +x in xz plane (120° from the ring-Cv1 direction at 180°)
+  const Cv2dir=[Math.cos(Math.PI/3),0,Math.sin(Math.PI/3)]; // (0.5, 0, 0.866)
+  const Cv2=va(Cv1,vs(Cv2dir,1.34));
+  const cv2I=atoms.length; atoms.push(['C',...Cv2]); bonds.push([cv1I,cv2I,2]);
+  // H on Cv1: at 300° from +x = (0.5, 0, -0.866) direction (third trigonal position)
+  atoms.push(['H',...va(Cv1,vs([Math.cos(-Math.PI/3),0,Math.sin(-Math.PI/3)],1.09))]);
+  bonds.push([cv1I,atoms.length-1,1]);
+  // 2H on Cv2: back direction is 240°, H1 at 120°, H2 at 0°
+  atoms.push(['H',...va(Cv2,vs([Math.cos(2*Math.PI/3),0,Math.sin(2*Math.PI/3)],1.09))]);
+  bonds.push([cv2I,atoms.length-1,1]);
+  atoms.push(['H',...va(Cv2,[1.09,0,0])]);
+  bonds.push([cv2I,atoms.length-1,1]);
+  add('苯環與芳香烴',pkg('苯乙烯','C₈H₈','苯+乙烯基，sp²，可聚合，沸點145°C',atoms,bonds));
+}
+
+/* ─── 鹵化物 ──────────────────────────────────────────────── */
+{
+  // FIX: place Cl directly along +x (not via T which caused Cl to overlap with H)
+  const C=[0,0,0], Cl=[1.77,0,0]; // Cl directly along +x
+  const hs=T(C,[1,0,0],1.09,3);   // 3H at 109.5° from C→Cl direction ✓
+  add('鹵化物',pkg('氯甲烷','CH₃Cl','一Cl取代，極性，沸點-24°C',
+    [['C',...C],['Cl',...Cl],...hs.map(h=>['H',...h])],[[0,1,1],[0,2,1],[0,3,1],[0,4,1]]));
+}
+{
+  const C=[0,0,0],hs=T(C,[0,1,0],1.77,3);
+  add('鹵化物',pkg('氯仿','CHCl₃','三Cl誘導效應，H帶δ⁺，可與丙酮形成氫鍵',
+    [['C',...C],['H',0,1.09,0],...hs.map(h=>['Cl',...h])],[[0,1,1],[0,2,1],[0,3,1],[0,4,1]]));
+}
+{
+  const pts=[[1,1,1],[-1,-1,1],[-1,1,-1],[1,-1,-1]].map(p=>vs(vn(p),1.77));
+  add('鹵化物',pkg('四氯化碳','CCl₄','正四面體，非極性，74個電子，沸點77°C',
+    [['C',0,0,0],...pts.map(p=>['Cl',...p])],[[0,1,1],[0,2,1],[0,3,1],[0,4,1]]));
+}
+{
+  // FIX: place Br directly along +x (not via T)
+  const C=[0,0,0], Br=[1.94,0,0]; // Br directly along +x
+  const hs=T(C,[1,0,0],1.09,3);   // 3H at 109.5° from C→Br direction ✓
+  add('鹵化物',pkg('溴甲烷','CH₃Br','一Br取代，極性，沸點4°C',
+    [['C',...C],['Br',...Br],...hs.map(h=>['H',...h])],[[0,1,1],[0,2,1],[0,3,1],[0,4,1]]));
+}
+
+/* ─── 醇類 C1-C5 ──────────────────────────────────────────── */
+add('醇類',mk1Alcohol(1,'甲醇','CH₃OH','最小醇，O-H⋯O氫鍵，沸點65°C'));
+add('醇類',mk1Alcohol(2,'乙醇','C₂H₅OH','常見溶劑，O-H⋯O氫鍵，沸點78°C'));
+add('醇類',mk1Alcohol(3,'1-丙醇','1-C₃H₇OH','伯醇，沸點97°C'));
+add('醇類',mk2Alcohol(3,'2-丙醇','2-C₃H₇OH','仲醇，沸點82°C'));
+add('醇類',mk1Alcohol(4,'1-丁醇','1-C₄H₉OH','伯醇，沸點118°C'));
+add('醇類',mk2Alcohol(4,'2-丁醇','2-C₄H₉OH','仲醇，沸點100°C'));
+{
+  // t-Butanol: (CH3)3COH — central C with 3 methyls + 1 OH at 4 tetrahedral vertices
+  const C=[0,0,0];
+  const dir1=vn([-1,-1,1]),dir2=vn([-1,1,-1]),dir3=vn([1,1,1]),dirO=vn([1,-1,-1]);
+  const C1=vs(dir1,1.54),C2=vs(dir2,1.54),C3=vs(dir3,1.54);
+  const O=vs(dirO,1.43); // O directly at the 4th tetrahedral vertex
+  const atoms=[['C',...C],['C',...C1],['C',...C2],['C',...C3],['O',...O]];
+  const bonds=[[0,1,1],[0,2,1],[0,3,1],[0,4,1]];
+  // H on O: at 109.5° from O→C direction
+  bonds.push([4,atoms.length,1]);atoms.push(['H',...T(O,vn(vsub(C,O)),0.96,1,0)[0]]);
+  // 3H on each CH3
+  [C1,C2,C3].forEach((Ci,k)=>T(Ci,vn(vsub(C,Ci)),1.09,3).forEach(h=>{bonds.push([1+k,atoms.length,1]);atoms.push(['H',...h]);}));
+  add('醇類',pkg('t-丁醇','(CH₃)₃COH','叔醇，無鄰近C-H，沸點82°C',atoms,bonds));
+}
+add('醇類',mk1Alcohol(5,'1-戊醇','1-C₅H₁₁OH','五碳伯醇，沸點138°C'));
+
+/* ─── 醛類 C1-C5 + 苯甲醛 ────────────────────────────────── */
+add('醛類',mkAldehyde(1,'甲醛','HCHO','最小醛，致癌，沸點-19°C'));
+add('醛類',mkAldehyde(2,'乙醛','CH₃CHO','醛類，無氫鍵供體，沸點20°C'));
+add('醛類',mkAldehyde(3,'丙醛','C₂H₅CHO','三碳醛，沸點49°C'));
+add('醛類',mkAldehyde(4,'丁醛','n-C₃H₇CHO','四碳醛，沸點75°C'));
+add('醛類',mkAldehyde(5,'戊醛','n-C₄H₉CHO','五碳醛，沸點103°C'));
+add('醛類',benzPkg('苯甲醛','C₆H₅CHO','芳香醛，苦杏仁氣味，沸點179°C',sub6('CHO',0)));
+
+/* ─── 酮類 ──────────────────────────────────────────────── */
+add('酮類',mkKetone(1,1,'丙酮','(CH₃)₂CO','最小酮，有受體無供體，沸點56°C'));
+add('酮類',mkKetone(1,2,'2-丁酮','CH₃COC₂H₅','甲乙酮(MEK)，沸點80°C'));
+add('酮類',mkKetone(2,2,'3-戊酮','(C₂H₅)₂CO','對稱酮，沸點102°C'));
+add('酮類',benzPkg('苯乙酮','C₆H₅COCH₃','芳香酮，苯環+乙醯基，沸點202°C',sub6('CHO',0))); // C=O displayed as CHO group; structure shows acyl carbon
+
+/* ─── 羧酸類 C1-C5 + 苯甲酸 ──────────────────────────────── */
+add('羧酸',mkAcid(1,'甲酸','HCOOH','最小羧酸，有還原性，沸點101°C'));
+add('羧酸',mkAcid(2,'乙酸','CH₃COOH','醋酸，二聚體，沸點118°C'));
+add('羧酸',mkAcid(3,'丙酸','C₂H₅COOH','三碳酸，沸點141°C'));
+add('羧酸',mkAcid(4,'丁酸','n-C₃H₇COOH','臭汗酸，沸點164°C'));
+add('羧酸',mkAcid(5,'戊酸','n-C₄H₉COOH','五碳酸，沸點187°C'));
+add('羧酸',benzPkg('苯甲酸','C₆H₅COOH','芳香酸，微溶於水，熔點122°C',sub6('COOH',0)));
+
+/* ─── 酯類 ──────────────────────────────────────────────── */
+add('酯類',mkEster(1,1,'甲酸甲酯','HCOOCH₃','最小酯，沸點32°C'));
+add('酯類',mkEster(2,1,'乙酸甲酯','CH₃COOCH₃','溶劑，沸點57°C'));
+add('酯類',mkEster(2,2,'乙酸乙酯','CH₃COOC₂H₅','常用有機溶劑，沸點77°C'));
+add('酯類',mkEster(2,3,'乙酸丙酯','CH₃COOC₃H₇','梨子香氣，沸點102°C'));
+add('酯類',mkEster(3,2,'丙酸乙酯','C₂H₅COOC₂H₅','鳳梨香，沸點99°C'));
+
+/* ─── 醚類 ──────────────────────────────────────────────── */
+add('醚類',mkEther(1,1,'二甲醚','CH₃OCH₃','最小醚，有受體無供體，沸點-24°C'));
+add('醚類',mkEther(1,2,'甲乙醚','CH₃OC₂H₅','非對稱醚，沸點8°C'));
+add('醚類',mkEther(2,2,'乙醚','(C₂H₅)₂O','常用溶劑，麻醉劑，沸點35°C'));
+
+/* ─── 酚類 ──────────────────────────────────────────────── */
+add('酚類',benzPkg('苯酚','C₆H₅OH','苯環+羥基，O-H⋯O氫鍵，沸點182°C',sub6('OH',0)));
+add('酚類',benzPkg('鄰苯二酚','C₆H₄(OH)₂(o)','兒茶酚：分子內五員環H鍵，熔點105°C',sub6_2('OH',0,'OH',1)));
+add('酚類',benzPkg('間苯二酚','C₆H₄(OH)₂(m)','雷索辛：分子間H鍵，熔點110°C',sub6_2('OH',0,'OH',2)));
+add('酚類',benzPkg('對苯二酚','C₆H₄(OH)₂(p)','氫醌：對稱，分子間H鍵網絡密，熔點172°C',sub6_2('OH',0,'OH',3)));
+add('酚類',benzPkg('水楊酸','HOC₆H₄COOH','2-羥基苯甲酸：分子內氫鍵，熔點159°C',sub6_2('OH',0,'COOH',1)));
+
+/* ─── 順反異構物 ─────────────────────────────────────────── */
+{
+  function butene2(isCis){
+    const C1=[-0.67,0,0],C2=[0.67,0,0];
+    const d3=[Math.cos(2*Math.PI/3),0,Math.sin(2*Math.PI/3)];
+    const d4=isCis?[Math.cos(Math.PI/3),0,Math.sin(Math.PI/3)]:[Math.cos(Math.PI/3),0,-Math.sin(Math.PI/3)];
+    const C3=va(C1,vs(d3,1.51)),C4=va(C2,vs(d4,1.51));
+    const h1d=vn(vs(va([1,0,0],d3),-1)),h2d=vn(vs(va([-1,0,0],d4),-1));
+    // FIX: toward = direction from methyl C TOWARD vinyl C (= from C3/C4 toward C1/C2)
+    const hC3=T(C3,vn(vsub(C1,C3)),1.09,3);
+    const hC4=T(C4,vn(vsub(C2,C4)),1.09,3);
+    return pkg(isCis?'順-2-丁烯':'反-2-丁烯',isCis?'cis-2-C₄H₈':'trans-2-C₄H₈',
+      isCis?'cis：兩甲基同側，沸點3.7°C':'trans：兩甲基異側，沸點0.9°C',
+      [['C',...C1],['C',...C2],['C',...C3],['C',...C4],
+       ['H',...va(C1,vs(h1d,1.086))],['H',...va(C2,vs(h2d,1.086))],
+       ...hC3.map(h=>['H',...h]),...hC4.map(h=>['H',...h])],
+      [[0,1,2],[0,2,1],[1,3,1],[0,4,1],[1,5,1],[2,6,1],[2,7,1],[2,8,1],[3,9,1],[3,10,1],[3,11,1]]);
+  }
+  add('順反異構物',butene2(true)); add('順反異構物',butene2(false));
+}
+{
+  function dienoic(isCis){
+    const C1=[-0.67,0,0],C2=[0.67,0,0];
+    const d1=[Math.cos(2*Math.PI/3),0,Math.sin(2*Math.PI/3)];
+    const d2=isCis?[Math.cos(Math.PI/3),0,Math.sin(Math.PI/3)]:[Math.cos(Math.PI/3),0,-Math.sin(Math.PI/3)];
+    const h1d=vn(vs(va([1,0,0],d1),-1)),h2d=vn(vs(va([-1,0,0],d2),-1));
+    const Cc1=va(C1,vs(d1,1.49)),Cc2=va(C2,vs(d2,1.49));
+    function cooh(Cc,d){
+      const back=vn(vs(d,-1));
+      const doD=[back[0]*Math.cos(2*Math.PI/3)-back[2]*Math.sin(2*Math.PI/3),back[1],back[0]*Math.sin(2*Math.PI/3)+back[2]*Math.cos(2*Math.PI/3)];
+      const ohD=[back[0]*Math.cos(-2*Math.PI/3)-back[2]*Math.sin(-2*Math.PI/3),back[1],back[0]*Math.sin(-2*Math.PI/3)+back[2]*Math.cos(-2*Math.PI/3)];
+      return{Odo:va(Cc,vs(doD,1.22)),Ooh:va(Cc,vs(ohD,1.34)),Hoh:va(va(Cc,vs(ohD,1.34)),vs(ohD,0.97))};
+    }
+    const r1=cooh(Cc1,d1),r2=cooh(Cc2,d2);
+    return pkg(isCis?'順丁烯二酸':'反丁烯二酸',isCis?'C₄H₄O₄(cis)':'C₄H₄O₄(trans)',
+      isCis?'馬來酸：兩COOH同側，分子內氫鍵，熔點130°C':'富馬酸：兩COOH異側，分子間氫鍵，熔點287°C',
+      [['C',...C1],['C',...C2],['C',...Cc1],['C',...Cc2],
+       ['H',...va(C1,vs(h1d,1.086))],['H',...va(C2,vs(h2d,1.086))],
+       ['O',...r1.Odo],['O',...r1.Ooh],['H',...r1.Hoh],
+       ['O',...r2.Odo],['O',...r2.Ooh],['H',...r2.Hoh]],
+      [[0,1,2],[0,2,1],[1,3,1],[0,4,1],[1,5,1],[2,6,2],[2,7,1],[7,8,1],[3,9,2],[3,10,1],[10,11,1]]);
+  }
+  add('順反異構物',dienoic(true)); add('順反異構物',dienoic(false));
+}
+
+/* ─── 鄰間對異構物 ──────────────────────────────────────── */
+// o/m/p-cresol
+add('鄰間對異構物',benzPkg('鄰-甲苯酚','o-C₇H₈O','OH+CH₃鄰位，五員環分子內H鍵可能，熔點31°C',sub6_2('OH',0,'CH3',1)));
+add('鄰間對異構物',benzPkg('間-甲苯酚','m-C₇H₈O','OH+CH₃間位，熔點12°C',sub6_2('OH',0,'CH3',2)));
+add('鄰間對異構物',benzPkg('對-甲苯酚','p-C₇H₈O','OH+CH₃對位，高度對稱，熔點36°C',sub6_2('OH',0,'CH3',3)));
+// o/m/p-nitrophenol
+add('鄰間對異構物',benzPkg('鄰-硝基苯酚','o-O₂NC₆H₄OH','分子內O-H⋯O=N氫鍵，沸點214°C',sub6_2('OH',0,'NO2',1)));
+add('鄰間對異構物',benzPkg('間-硝基苯酚','m-O₂NC₆H₄OH','分子間氫鍵，熔點96°C',sub6_2('OH',0,'NO2',2)));
+add('鄰間對異構物',benzPkg('對-硝基苯酚','p-O₂NC₆H₄OH','分子間氫鍵，熔點114°C',sub6_2('OH',0,'NO2',3)));
+// o/m/p-fluorophenol
+add('鄰間對異構物',benzPkg('鄰-氟苯酚','o-FC₆H₄OH','分子內O-H⋯F弱氫鍵，熔點16°C',sub6_2('OH',0,'F',1)));
+add('鄰間對異構物',benzPkg('間-氟苯酚','m-FC₆H₄OH','分子間氫鍵，熔點14°C',sub6_2('OH',0,'F',2)));
+add('鄰間對異構物',benzPkg('對-氟苯酚','p-FC₆H₄OH','分子間氫鍵，高度對稱，熔點48°C',sub6_2('OH',0,'F',3)));
+// o/m/p-dichlorobenzene
+add('鄰間對異構物',benzPkg('鄰-二氯苯','o-C₆H₄Cl₂','兩Cl鄰位，熔點-17°C',sub6_2('Cl',0,'Cl',1)));
+add('鄰間對異構物',benzPkg('間-二氯苯','m-C₆H₄Cl₂','兩Cl間位，熔點-25°C',sub6_2('Cl',0,'Cl',2)));
+add('鄰間對異構物',benzPkg('對-二氯苯','p-C₆H₄Cl₂','兩Cl對位，非極性，熔點53°C',sub6_2('Cl',0,'Cl',3)));
+
+/* ─── 含硫磷無機分子 ─────────────────────────────────────────── */
+// SO₂: bent, O-S-O=119°, S-O=1.43Å
+add('含硫磷無機分子',pkg('二氧化硫','SO₂','V形，鍵角119°，極性，大氣污染物',
+  [['S',0,0,0],['O',1.233,0.725,0],['O',-1.233,0.725,0]],
+  [[0,1,2],[0,2,1]]));
+// SO₃: trigonal planar, 120°
+add('含硫磷無機分子',pkg('三氧化硫','SO₃','平面三角形，鍵角120°，非極性',
+  [['S',0,0,0],['O',1.43,0,0],['O',-0.715,0,1.239],['O',-0.715,0,-1.239]],
+  [[0,1,2],[0,2,1],[0,3,1]]));
+// HNO₃: planar, N central, ~120°
+{
+  const N=[0,0,0],O1=[0,1.20,0];
+  const O2=vs(D210,1.25),O3=vs(D330,1.41);
+  const H=va(O3,vs(D330,0.97));
+  add('含硫磷無機分子',pkg('硝酸','HNO₃','平面分子，N-O-H，鍵角~120°，強酸',
+    [['N',...N],['O',...O1],['O',...O2],['O',...O3],['H',...H]],
+    [[0,1,2],[0,2,1],[0,3,1],[3,4,1]]));
+}
+// H₂SO₄: S tetrahedral-like, two S=O, two S-OH
+{
+  const S=[0,0,0];
+  const O1=vs(vn([1,1,1]),1.43),O2=vs(vn([-1,-1,1]),1.43); // S=O
+  const O3=vs(vn([-1,1,-1]),1.57),O4=vs(vn([1,-1,-1]),1.57); // S-OH
+  const H3=T(O3,vn(vsub(S,O3)),0.96,1,0)[0];
+  const H4=T(O4,vn(vsub(S,O4)),0.96,1,0)[0];
+  add('含硫磷無機分子',pkg('硫酸','H₂SO₄','四面體形，兩S=O，兩S-OH，強酸',
+    [['S',...S],['O',...O1],['O',...O2],['O',...O3],['O',...O4],['H',...H3],['H',...H4]],
+    [[0,1,2],[0,2,2],[0,3,1],[0,4,1],[3,5,1],[4,6,1]]));
+}
+// H₂SO₃: S pyramidal, one S=O, two S-OH
+{
+  const S=[0,0,0];
+  const Odo=T(S,[1,0,0],1.43,1,0)[0];  // S=O
+  const Ooh1=T(S,[1,0,0],1.66,1,2*Math.PI/3)[0];
+  const Ooh2=T(S,[1,0,0],1.66,1,4*Math.PI/3)[0];
+  const H1=T(Ooh1,vn(vsub(S,Ooh1)),0.96,1,0)[0];
+  const H2=T(Ooh2,vn(vsub(S,Ooh2)),0.96,1,0)[0];
+  add('含硫磷無機分子',pkg('亞硫酸','H₂SO₃','三角錐形（S有孤對電子），弱酸',
+    [['S',...S],['O',...Odo],['O',...Ooh1],['O',...Ooh2],['H',...H1],['H',...H2]],
+    [[0,1,2],[0,2,1],[0,3,1],[2,4,1],[3,5,1]]));
+}
+// SF₆: octahedral
+add('含硫磷無機分子',pkg('六氟化硫','SF₆','正八面體，鍵角90°和180°，非極性，S擴充八隅體',
+  [['S',0,0,0],['F',1.56,0,0],['F',-1.56,0,0],['F',0,1.56,0],['F',0,-1.56,0],['F',0,0,1.56],['F',0,0,-1.56]],
+  [[0,1,1],[0,2,1],[0,3,1],[0,4,1],[0,5,1],[0,6,1]]));
+// PCl₅: trigonal bipyramidal
+add('含硫磷無機分子',pkg('五氯化磷','PCl₅','三角雙錐，赤道鍵角120°，軸向鍵角90°，P擴充八隅體',
+  [['P',0,0,0],
+   ['Cl',2.04,0,0],['Cl',-1.02,0,1.766],['Cl',-1.02,0,-1.766],
+   ['Cl',0,2.19,0],['Cl',0,-2.19,0]],
+  [[0,1,1],[0,2,1],[0,3,1],[0,4,1],[0,5,1]]));
+// P₄: white phosphorus, tetrahedral
+{
+  const k=2.21/(2*Math.sqrt(2)); // 0.781
+  add('含硫磷無機分子',pkg('白磷','P₄','正四面體，P-P-P鍵角60°，化學性質活潑',
+    [['P',k,k,k],['P',-k,-k,k],['P',-k,k,-k],['P',k,-k,-k]],
+    [[0,1,1],[0,2,1],[0,3,1],[1,2,1],[1,3,1],[2,3,1]]));
+}
+// Red phosphorus: simplified chain fragment
+{
+  const P1=[0,0,0],P2=[2.21,0,0],P3=[2.707,0,2.153]; // 103° P-P-P angle
+  add('含硫磷無機分子',pkg('紅磷','(P)ₙ','高分子鏈狀結構，每P三鍵，鍵角~103°，化學性質穩定',
+    [['P',...P1],['P',...P2],['P',...P3]],[[0,1,1],[1,2,1]]));
+}
+
+/* ══════════════════════════ BOND ANGLE HELPER ═════════════════════ */
+// Computes all bond angles at every atom with 2+ bonds.
+// Returns array of {pos:[x,y,z], label:'xxx.x°'}
+function computeAngles(mol){
+  const res=[];
+  mol.atoms.forEach(([,cx,cy,cz],ci)=>{
+    const nb=mol.bonds.filter(([i,j])=>i===ci||j===ci).map(([i,j])=>i===ci?j:i);
+    if(nb.length<2) return;
+    for(let a=0;a<nb.length;a++) for(let b=a+1;b<nb.length;b++){
+      const [,ax,ay,az]=mol.atoms[nb[a]],[,bx,by,bz]=mol.atoms[nb[b]];
+      const v1=vn([ax-cx,ay-cy,az-cz]),v2=vn([bx-cx,by-cy,bz-cz]);
+      const d=Math.max(-1,Math.min(1,v1[0]*v2[0]+v1[1]*v2[1]+v1[2]*v2[2]));
+      res.push({
+        pos:[cx+(ax+bx-2*cx)*0.42, cy+(ay+by-2*cy)*0.42, cz+(az+bz-2*cz)*0.42],
+        label:(Math.acos(d)*180/Math.PI).toFixed(1)+'°'
+      });
+    }
+  });
+  return res;
+}
+
+/* ══════════════════════════ LONE PAIR HELPER ══════════════════════ */
+// Valence electrons per element (for lone pair calculation)
+/* ══════════════════════════ THREE.JS VIEWER ═══════════════════════ */
+const BOND_R=0.055, BOND_OFF=0.095;
+
+// Build molecule geometry into a pivot (atoms + bonds only, no LP objects).
+// LP positions are handled as CSS overlay — same as angle labels.
+function buildMolScene(pivot, mol){
+  mol.atoms.forEach(([el,x,y,z])=>{
+    const ed=EL[el]||EL.H;
+    const m=new THREE.Mesh(
+      new THREE.SphereGeometry(ed.r*1.2,24,24),
+      new THREE.MeshPhongMaterial({color:ed.col,shininess:90,specular:0x333333})
+    );
+    m.position.set(x,y,z); pivot.add(m);
+  });
+  mol.bonds.forEach(([i,j,order])=>{
+    const[,ax,ay,az]=mol.atoms[i],[,bx,by,bz]=mol.atoms[j];
+    drawBond(pivot,new THREE.Vector3(ax,ay,az),new THREE.Vector3(bx,by,bz),order);
+  });
+}
+
+function drawBond(scene,A,B,order){
+  const dir=B.clone().sub(A);const len=dir.length();
+  if(len<0.01) return;
+  const mid=A.clone().add(B).multiplyScalar(0.5);
+  const dn=dir.clone().normalize();
+  const q=new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0),dn);
+  const ref=Math.abs(dn.y)<0.8?new THREE.Vector3(0,1,0):new THREE.Vector3(1,0,0);
+  const perp=new THREE.Vector3().crossVectors(dn,ref).normalize();
+  const mat=new THREE.MeshPhongMaterial({color:0x888888,shininess:40});
+  const r=BOND_R*(order>1?0.68:1);
+  const offs=order===1?[[0]]:order===2?[[-BOND_OFF],[BOND_OFF]]:[[-BOND_OFF*1.2],[0],[BOND_OFF*1.2]];
+  offs.forEach(([off])=>{
+    const m=new THREE.Mesh(new THREE.CylinderGeometry(r,r,len,8),mat.clone());
+    m.quaternion.copy(q);
+    m.position.copy(mid).addScaledVector(perp,off);
+    scene.add(m);
+  });
+}
+
+/* ── Viewer ── */
+function Viewer({mol, showAngles}){
+  const wrapRef=useRef(null);
+  const canvasRef=useRef(null);
+  const angOverlayRef=useRef(null);
+  const propsRef=useRef({showAngles});
+  propsRef.current={showAngles};
+  const anglesRef=useRef([]);
+  const S=useRef({renderer:null,scene:null,camera:null,animId:null,
+    drag:false,lx:0,ly:0,rx:0.3,ry:0.4,zoom:7,pivot:null});
+
+  // ── Effect A: create renderer + camera + scene ONCE ──────────────────
+  useEffect(()=>{
+    const canvas=canvasRef.current, wrap=wrapRef.current;
+    if(!canvas||!wrap) return;
+    const s=S.current;
+    const W=wrap.clientWidth||600, H=wrap.clientHeight||400;
+    s.renderer=new THREE.WebGLRenderer({canvas,antialias:true});
+    s.renderer.setSize(W,H); s.renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+    s.renderer.setClearColor(0x0a0d14,1);
+    s.scene=new THREE.Scene();
+    s.camera=new THREE.PerspectiveCamera(45,W/H,0.1,200);
+    s.zoom=7; s.rx=0.3; s.ry=0.4;
+    s.pivot=new THREE.Object3D();
+    s.scene.add(new THREE.AmbientLight(0x505050,2.0));
+    const dl=new THREE.DirectionalLight(0xffffff,2.2); dl.position.set(5,8,5); s.scene.add(dl);
+    const dl2=new THREE.DirectionalLight(0x8899cc,0.7); dl2.position.set(-5,-3,-5); s.scene.add(dl2);
+    s.scene.add(s.pivot);
+    const ro=new ResizeObserver(([e])=>{
+      const{width:w,height:h}=e.contentRect;
+      if(w>0&&h>0){s.renderer.setSize(w,h);s.camera.aspect=w/h;s.camera.updateProjectionMatrix();}
+    });
+    ro.observe(wrap);
+
+    function render(){
+      s.animId=requestAnimationFrame(render);
+      s.camera.position.set(0,0,s.zoom); s.camera.lookAt(0,0,0);
+      s.pivot.rotation.x=s.rx; s.pivot.rotation.y=s.ry;
+      s.renderer.render(s.scene,s.camera);
+      const W2=wrap.clientWidth, H2=wrap.clientHeight;
+
+      // ── Angle overlay ─────────────────────────────────────────────────
+      const angOv=angOverlayRef.current;
+      if(!angOv) return;
+      if(!propsRef.current.showAngles||anglesRef.current.length===0){
+        if(angOv.children.length>0) angOv.innerHTML=''; return;
+      }
+      const angs=anglesRef.current;
+      while(angOv.children.length<angs.length){
+        const sp=document.createElement('span');
+        sp.style.cssText='position:absolute;pointer-events:none;font-size:11px;font-weight:700;'+
+          'color:#fbbf24;background:rgba(0,0,0,0.72);padding:1px 5px;border-radius:4px;'+
+          'transform:translate(-50%,-50%);white-space:nowrap;border:1px solid rgba(251,191,36,0.3)';
+        angOv.appendChild(sp);
+      }
+      while(angOv.children.length>angs.length) angOv.removeChild(angOv.lastChild);
+      angs.forEach((a,k)=>{
+        const v=new THREE.Vector3(...a.pos).applyMatrix4(s.pivot.matrixWorld);
+        v.project(s.camera);
+        const lbl=angOv.children[k];
+        lbl.textContent=a.label;
+        lbl.style.left=((v.x+1)*W2/2)+'px';
+        lbl.style.top=((-v.y+1)*H2/2)+'px';
+        lbl.style.display=v.z<1?'inline':'none';
+      });
+    }
+    render();
+    return()=>{
+      cancelAnimationFrame(s.animId); ro.disconnect(); s.renderer.dispose();
+      if(angOverlayRef.current) angOverlayRef.current.innerHTML='';
+    };
+  },[]);
+
+  // ── Effect B: rebuild when mol changes ───────────────────────────────
+  useEffect(()=>{
+    const s=S.current;
+    if(!s.pivot||!mol) return;
+    while(s.pivot.children.length>0) s.pivot.remove(s.pivot.children[0]);
+    buildMolScene(s.pivot, mol);
+    anglesRef.current=computeAngles(mol);
+    s.zoom=7; s.rx=0.3; s.ry=0.4;
+  },[mol]);
+
+  const onMD=useCallback(e=>{const s=S.current;s.drag=true;s.lx=e.clientX;s.ly=e.clientY;},[]);
+  const onMM=useCallback(e=>{const s=S.current;if(!s.drag)return;s.ry+=(e.clientX-s.lx)*0.008;s.rx+=(e.clientY-s.ly)*0.008;s.lx=e.clientX;s.ly=e.clientY;},[]);
+  const onMU=useCallback(()=>{S.current.drag=false;},[]);
+  const onWheel=useCallback(e=>{e.preventDefault();S.current.zoom=Math.max(3,Math.min(20,S.current.zoom+e.deltaY*0.01));},[]);
+  const onTS=useCallback(e=>{if(e.touches.length===1){const s=S.current;s.drag=true;s.lx=e.touches[0].clientX;s.ly=e.touches[0].clientY;}},[]);
+  const onTM=useCallback(e=>{e.preventDefault();if(e.touches.length===1){const s=S.current;if(!s.drag)return;s.ry+=(e.touches[0].clientX-s.lx)*0.01;s.rx+=(e.touches[0].clientY-s.ly)*0.01;s.lx=e.touches[0].clientX;s.ly=e.touches[0].clientY;}},[]);
+
+  return(
+    <div ref={wrapRef} style={{width:'100%',height:'100%',position:'relative'}}>
+      <canvas ref={canvasRef} style={{width:'100%',height:'100%',display:'block',cursor:'grab',touchAction:'none'}}
+        onMouseDown={onMD} onMouseMove={onMM} onMouseUp={onMU} onMouseLeave={onMU}
+        onWheel={onWheel} onTouchStart={onTS} onTouchMove={onTM} onTouchEnd={onMU}/>
+      <div ref={angOverlayRef} style={{position:'absolute',inset:0,pointerEvents:'none',overflow:'hidden'}}/>
+    </div>
+  );
+}
+
+/* ══════════════════════════ APP UI ════════════════════════════════ */
+const ICONS={'無機小分子':'⚗️','烷烴':'⛓️','烯烴與炔烴':'⚡','苯環與芳香烴':'⬡',
+  '鹵化物':'🟢','醇類':'🥃','醛類':'🫙','酮類':'🔥','羧酸':'🧪','酯類':'🌸',
+  '醚類':'💧','酚類':'🌿','順反異構物':'↔️','鄰間對異構物':'🔀','含硫磷無機分子':'🌡️'};
+
+const LEGEND=[['H','氫','#E8E8E8'],['C','碳','#444'],['N','氮','#2244EE'],
+  ['O','氧','#FF1100'],['F','氟','#33AA33'],['Cl','氯','#22CC22'],
+  ['Br','溴','#BB2200'],['I','碘','#881188'],['S','硫','#DDCC00'],['P','磷','#FF8000']];
+
+function App(){
+  const cats=Object.keys(CAT);
+  const [openCat,setOpenCat]=useState(cats[0]);
+  const [selMol,setSelMol]=useState(CAT[cats[0]][0]);
+  const [showAngles,setShowAngles]=useState(false);
+  const [sidebarOpen,setSidebarOpen]=useState(()=>typeof window!=='undefined'&&window.innerWidth>640);
+  const [installDismissed,setInstallDismissed]=useState(false); // install banner dismissed?
+
+  function toggleCat(c){
+    if(openCat===c){setOpenCat(null);}
+    else{setOpenCat(c);setSelMol(CAT[c][0]);}
+  }
+
+  // Detect iOS Safari (needs manual "Add to Home Screen")
+  const isIOS=/iphone|ipad|ipod/i.test(navigator.userAgent)&&!window.MSStream;
+  const isInStandaloneMode=window.navigator.standalone===true||window.matchMedia('(display-mode: standalone)').matches;
+
+  return(
+    <div style={{display:'flex',flexDirection:'column',height:'100vh',background:'#0a0d14',color:'#e2e8f0',
+      fontFamily:"'Noto Sans TC','Segoe UI',sans-serif",overflow:'hidden'}}>
+
+      {/* ══ 安裝橫幅（頂部，可關閉）══════════════════════════════════ */}
+      {!installDismissed&&!isInStandaloneMode&&(
+        <div style={{background:'linear-gradient(90deg,#0f2050,#1a3a6e)',borderBottom:'1px solid #1e3a7e',
+          padding:'7px 14px',display:'flex',alignItems:'center',gap:10,flexShrink:0,zIndex:300}}>
+          <span style={{fontSize:18}}>⚗️</span>
+          <div style={{flex:1,minWidth:0}}>
+            {isIOS
+              ? <span style={{fontSize:12,color:'#93c5fd'}}>
+                  iPhone/iPad 安裝：點 Safari 底部 <strong style={{color:'#fff'}}>「分享」</strong> → <strong style={{color:'#fff'}}>「加入主畫面」</strong>
+                </span>
+              : <span style={{fontSize:12,color:'#93c5fd'}}>
+                  點選右側按鈕可將本程式安裝到桌面，下次直接從圖示開啟
+                </span>
+            }
+          </div>
+          {!isIOS&&(
+            <button id="react-install-btn"
+              style={{background:'#2563eb',color:'#fff',border:'none',borderRadius:8,
+                padding:'5px 14px',fontSize:12,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap',flexShrink:0}}>
+              📲 安裝
+            </button>
+          )}
+          <button onClick={()=>setInstallDismissed(true)}
+            style={{background:'none',border:'none',color:'#64748b',fontSize:18,
+              cursor:'pointer',padding:'2px 4px',lineHeight:1,flexShrink:0}}>✕</button>
+        </div>
+      )}
+
+      {/* ══ 主體（側欄 + 檢視器）══ */}
+      <div style={{display:'flex',flex:1,overflow:'hidden',position:'relative'}}>
+        {/* 手機遮罩 */}
+        {sidebarOpen&&(
+          <div onClick={()=>setSidebarOpen(false)}
+            style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.55)',zIndex:199}}
+            className="mob-overlay"/>
+        )}
+
+      {/* ── SIDEBAR ── */}
+      <div style={{
+        width:210,flexShrink:0,background:'#0d1020',borderRight:'1px solid #1e2a3e',
+        overflowY:'auto',display:'flex',flexDirection:'column',
+        position:'relative',zIndex:200,
+        // On mobile: absolute + slide in/out
+        ...(typeof window!=='undefined'&&window.innerWidth<=640?{
+          position:'fixed',top:0,bottom:0,left:0,
+          transform:sidebarOpen?'translateX(0)':'translateX(-100%)',
+          transition:'transform .25s ease',
+          boxShadow:sidebarOpen?'4px 0 20px rgba(0,0,0,0.5)':'none',
+        }:{
+          display:sidebarOpen?'flex':'none',
+        })
+      }}>
+        <div style={{padding:'14px 12px 10px',borderBottom:'1px solid #1e2a3e',
+          display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+          <div>
+            <div style={{fontSize:11,fontWeight:900,letterSpacing:3,color:'#38bdf8',textTransform:'uppercase'}}>分子結構</div>
+            <div style={{fontSize:9,color:'#475569',marginTop:2,letterSpacing:1}}>3D Viewer</div>
+          </div>
+          <button onClick={()=>setSidebarOpen(false)}
+            style={{background:'none',border:'none',color:'#475569',fontSize:18,cursor:'pointer',padding:'2px 4px'}}>✕</button>
+        </div>
+        <div style={{flex:1,overflowY:'auto'}}>
+          {cats.map(cat=>(
+            <div key={cat}>
+              <button onClick={()=>toggleCat(cat)}
+                style={{width:'100%',display:'flex',alignItems:'center',gap:6,padding:'7px 12px',
+                  background:'none',border:'none',cursor:'pointer',
+                  color:openCat===cat?'#7dd3fc':'#64748b',fontSize:11,fontWeight:700,
+                  borderLeft:openCat===cat?'3px solid #38bdf8':'3px solid transparent',textAlign:'left'}}>
+                <span>{ICONS[cat]||'🔬'}</span>
+                <span style={{flex:1,letterSpacing:0.3}}>{cat}</span>
+                <span style={{fontSize:9,opacity:0.6}}>{openCat===cat?'▲':'▼'}</span>
+              </button>
+              {openCat===cat&&(
+                <div style={{background:'rgba(0,0,0,0.2)'}}>
+                  {CAT[cat].map((m,idx)=>(
+                    <button key={idx} onClick={()=>{setSelMol(m);if(window.innerWidth<=640)setSidebarOpen(false);}}
+                      style={{width:'100%',padding:'5px 10px 5px 22px',background:selMol===m?'rgba(56,189,248,0.1)':'none',
+                        border:'none',cursor:'pointer',textAlign:'left',
+                        borderLeft:selMol===m?'2px solid #38bdf8':'2px solid transparent',
+                        color:selMol===m?'#7dd3fc':'#64748b',fontSize:10.5}}>
+                      <span style={{fontFamily:'monospace',fontWeight:600,fontSize:11}}>{m.formula}</span>
+                      <span style={{display:'block',fontSize:9.5,opacity:0.7,marginTop:1}}>{m.name}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── VIEWER AREA ── */}
+      <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden',minWidth:0}}>
+        {/* Header bar */}
+        <div style={{padding:'7px 10px',borderBottom:'1px solid #1e2a3e',background:'#0d1020',
+          display:'flex',alignItems:'center',gap:6,flexWrap:'wrap',flexShrink:0}}>
+          {/* Hamburger */}
+          <button onClick={()=>setSidebarOpen(v=>!v)}
+            style={{background:'none',border:'1px solid #334155',borderRadius:6,color:'#94a3b8',
+              fontSize:16,cursor:'pointer',padding:'4px 8px',lineHeight:1,flexShrink:0}}>
+            ☰
+          </button>
+          {/* Molecule info */}
+          <div style={{minWidth:0,flex:1}}>
+            <span style={{fontSize:16,fontWeight:900,fontFamily:'monospace',color:'#38bdf8'}}>{selMol?.formula}</span>
+            <span style={{fontSize:12,color:'#94a3b8',marginLeft:7,display:'inline'}}>{selMol?.name}</span>
+          </div>
+          {/* Tool buttons */}
+          <div style={{display:'flex',gap:5,flexShrink:0,flexWrap:'wrap'}}>
+            {/* Bond angle button */}
+            <button onClick={()=>setShowAngles(v=>!v)}
+              style={{display:'flex',alignItems:'center',gap:4,padding:'4px 10px',borderRadius:7,
+                cursor:'pointer',fontSize:11,fontWeight:700,border:'1px solid',transition:'all .15s',
+                background:showAngles?'rgba(251,191,36,0.15)':'rgba(255,255,255,0.04)',
+                borderColor:showAngles?'#fbbf24':'#334155',
+                color:showAngles?'#fbbf24':'#64748b'}}>
+              <span style={{fontSize:13}}>📐</span>
+              {showAngles?'隱藏鍵角':'顯示鍵角'}
+            </button>
+          </div>
+        </div>
+
+        {/* 3D Canvas area */}
+        <div style={{flex:1,position:'relative',overflow:'hidden'}}>
+          <Viewer mol={selMol} showAngles={showAngles}/>
+          {selMol?.note&&(
+            <div style={{position:'absolute',bottom:0,left:0,right:0,padding:'6px 14px',
+              background:'linear-gradient(transparent,rgba(10,13,20,0.96))',fontSize:11,color:'#94a3b8',lineHeight:1.5}}>
+              <span style={{color:'#38bdf8',fontWeight:700,marginRight:6}}>📌</span>{selMol.note}
+            </div>
+          )}
+        </div>
+
+        {/* CPK Legend bar */}
+        <div style={{padding:'5px 12px',borderTop:'1px solid #1e2a3e',background:'#0d1020',
+          display:'flex',flexWrap:'wrap',gap:'4px 10px',alignItems:'center',flexShrink:0}}>
+          <span style={{fontSize:9,color:'#475569',letterSpacing:1,textTransform:'uppercase',marginRight:2}}>CPK</span>
+          {LEGEND.map(([sym,zh,col])=>(
+            <span key={sym} style={{display:'flex',alignItems:'center',gap:3}}>
+              <span style={{width:8,height:8,borderRadius:'50%',background:col,
+                border:sym==='H'?'1px solid #555':'none',display:'inline-block',flexShrink:0}}/>
+              <span style={{fontSize:9,color:'#94a3b8'}}>{zh}</span>
+            </span>
+          ))}
+        </div>
+      </div>{/* end VIEWER AREA */}
+      </div>{/* end 主體 flex row */}
+
+      {/* React-side install button handler */}
+      <InstallHandler/>
+    </div>
+  );
+}
+
+// Wires up the "安裝" button rendered in the banner to the native PWA prompt
+function InstallHandler(){
+  useEffect(()=>{
+    let prompt=null;
+    const handler=e=>{e.preventDefault();prompt=e;};
+    window.addEventListener('beforeinstallprompt',handler);
+    const btn=document.getElementById('react-install-btn');
+    if(btn) btn.onclick=()=>{if(prompt){prompt.prompt();prompt=null;}};
+    return()=>window.removeEventListener('beforeinstallprompt',handler);
+  },[]);
+  return null;
+}
+
+// Mount
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(React.createElement(App));
+document.getElementById('loading').style.display = 'none';
+  </script>
+</body>
+</html>
