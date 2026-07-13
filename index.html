@@ -1659,6 +1659,18 @@ function Viewer({
     rx: 0.3,
     ry: 0.4,
     zoom: 7,
+    px: 0,
+    // 平移量（世界座標）
+    py: 0,
+    pan: false,
+    // 滑鼠平移模式（右鍵或 Shift+左鍵）
+    pinch: false,
+    // 雙指手勢進行中
+    td: 0,
+    // 雙指距離暫存
+    tmx: 0,
+    tmy: 0,
+    // 雙指中點暫存
     pivot: null
   });
 
@@ -1682,6 +1694,8 @@ function Viewer({
     s.zoom = 7;
     s.rx = 0.3;
     s.ry = 0.4;
+    s.px = 0;
+    s.py = 0;
     s.pivot = new THREE.Object3D();
     s.scene.add(new THREE.AmbientLight(0x505050, 2.0));
     const dl = new THREE.DirectionalLight(0xffffff, 2.2);
@@ -1719,6 +1733,7 @@ function Viewer({
       s.camera.lookAt(0, 0, 0);
       s.pivot.rotation.x = s.rx;
       s.pivot.rotation.y = s.ry;
+      s.pivot.position.set(s.px, s.py, 0); // 平移：移動模型群組（孤對/鍵角疊加層皆經 matrixWorld 投影，自動同步）
       s.renderer.render(s.scene, s.camera);
       const W2 = wrap.clientWidth,
         H2 = wrap.clientHeight;
@@ -1803,18 +1818,40 @@ function Viewer({
     s.zoom = 7;
     s.rx = 0.3;
     s.ry = 0.4;
+    s.px = 0;
+    s.py = 0;
   }, [mol]);
+  // 每像素對應的世界座標量（隨縮放距離變化，使平移手感與螢幕一致）
+  const worldPerPx = () => {
+    const s = S.current;
+    const h = wrapRef.current ? wrapRef.current.clientHeight : 400;
+    return 2 * s.zoom * Math.tan(Math.PI / 8) / Math.max(h, 1); // fov 45°
+  };
+  const applyPan = (dx, dy) => {
+    const s = S.current;
+    const k = worldPerPx();
+    const lim = 0.9 * s.zoom; // 限制平移範圍，避免分子完全移出畫面
+    s.px = Math.max(-lim, Math.min(lim, s.px + dx * k));
+    s.py = Math.max(-lim, Math.min(lim, s.py - dy * k));
+  };
   const onMD = useCallback(e => {
     const s = S.current;
     s.drag = true;
+    s.pan = e.button === 2 || e.shiftKey; // 右鍵或 Shift+左鍵 = 平移
     s.lx = e.clientX;
     s.ly = e.clientY;
   }, []);
   const onMM = useCallback(e => {
     const s = S.current;
     if (!s.drag) return;
-    s.ry += (e.clientX - s.lx) * 0.008;
-    s.rx += (e.clientY - s.ly) * 0.008;
+    const dx = e.clientX - s.lx,
+      dy = e.clientY - s.ly;
+    if (s.pan) {
+      applyPan(dx, dy);
+    } else {
+      s.ry += dx * 0.008;
+      s.rx += dy * 0.008;
+    }
     s.lx = e.clientX;
     s.ly = e.clientY;
   }, []);
@@ -1823,26 +1860,70 @@ function Viewer({
   }, []);
   const onWheel = useCallback(e => {
     e.preventDefault();
-    S.current.zoom = Math.max(3, Math.min(20, S.current.zoom + e.deltaY * 0.01));
+    S.current.zoom = Math.max(2.5, Math.min(25, S.current.zoom + e.deltaY * 0.01));
   }, []);
   const onTS = useCallback(e => {
+    const s = S.current;
     if (e.touches.length === 1) {
-      const s = S.current;
       s.drag = true;
+      s.pinch = false;
       s.lx = e.touches[0].clientX;
       s.ly = e.touches[0].clientY;
+    } else if (e.touches.length >= 2) {
+      // 雙指：記錄起始指距與中點，進入捾合縮放/平移模式
+      const [a, b] = [e.touches[0], e.touches[1]];
+      s.drag = false;
+      s.pinch = true;
+      s.td = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+      s.tmx = (a.clientX + b.clientX) / 2;
+      s.tmy = (a.clientY + b.clientY) / 2;
     }
   }, []);
   const onTM = useCallback(e => {
     e.preventDefault();
-    if (e.touches.length === 1) {
-      const s = S.current;
-      if (!s.drag) return;
+    const s = S.current;
+    if (e.touches.length >= 2 && s.pinch) {
+      const [a, b] = [e.touches[0], e.touches[1]];
+      // 捾合縮放：指距拉開 = 拉近鏡頭
+      const d = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+      if (d > 0 && s.td > 0) {
+        s.zoom = Math.max(2.5, Math.min(25, s.zoom * (s.td / d)));
+      }
+      s.td = d;
+      // 雙指拖拽：以中點位移平移視角
+      const mx = (a.clientX + b.clientX) / 2,
+        my = (a.clientY + b.clientY) / 2;
+      applyPan(mx - s.tmx, my - s.tmy);
+      s.tmx = mx;
+      s.tmy = my;
+    } else if (e.touches.length === 1 && s.drag) {
       s.ry += (e.touches[0].clientX - s.lx) * 0.01;
       s.rx += (e.touches[0].clientY - s.ly) * 0.01;
       s.lx = e.touches[0].clientX;
       s.ly = e.touches[0].clientY;
     }
+  }, []);
+  const onTE = useCallback(e => {
+    const s = S.current;
+    if (e.touches.length === 1) {
+      // 從雙指回到單指：重新定位基準點，避免畫面跳動
+      s.pinch = false;
+      s.drag = true;
+      s.lx = e.touches[0].clientX;
+      s.ly = e.touches[0].clientY;
+    } else if (e.touches.length === 0) {
+      s.pinch = false;
+      s.drag = false;
+    }
+  }, []);
+  const resetView = useCallback(() => {
+    // 回到初始視角：僅重設旋轉/縮放/平移，不動孤對電子與鍵角等顯示開關
+    const s = S.current;
+    s.rx = 0.3;
+    s.ry = 0.4;
+    s.zoom = 7;
+    s.px = 0;
+    s.py = 0;
   }, []);
   return /*#__PURE__*/React.createElement("div", {
     ref: wrapRef,
@@ -1865,9 +1946,11 @@ function Viewer({
     onMouseUp: onMU,
     onMouseLeave: onMU,
     onWheel: onWheel,
+    onContextMenu: e => e.preventDefault(),
     onTouchStart: onTS,
     onTouchMove: onTM,
-    onTouchEnd: onMU
+    onTouchEnd: onTE,
+    onTouchCancel: onTE
   }), /*#__PURE__*/React.createElement("canvas", {
     ref: lpCanvasRef,
     style: {
@@ -1885,7 +1968,34 @@ function Viewer({
       pointerEvents: 'none',
       overflow: 'hidden'
     }
-  }));
+  }), /*#__PURE__*/React.createElement("button", {
+    onClick: resetView,
+    title: "回到初始視角",
+    style: {
+      position: 'absolute',
+      right: 10,
+      bottom: 10,
+      zIndex: 5,
+      display: 'flex',
+      alignItems: 'center',
+      gap: 4,
+      padding: '7px 12px',
+      borderRadius: 999,
+      border: '1px solid #334155',
+      background: 'rgba(13,16,32,0.85)',
+      color: '#94a3b8',
+      fontSize: 12,
+      fontWeight: 700,
+      cursor: 'pointer',
+      backdropFilter: 'blur(4px)',
+      boxShadow: '0 2px 10px rgba(0,0,0,0.45)'
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 14,
+      lineHeight: 1
+    }
+  }, "⟲"), "復位"));
 }
 
 /* ══════════════════════════ APP UI ════════════════════════════════ */
@@ -2263,7 +2373,9 @@ function App() {
       bottom: 0,
       left: 0,
       right: 0,
-      padding: '6px 14px',
+      padding: '6px 96px 6px 14px',
+      // 右側留給復位按鈕；文字帶不攜截旋轉/縮放手勢
+      pointerEvents: 'none',
       background: 'linear-gradient(transparent,rgba(10,13,20,0.96))',
       fontSize: 11,
       color: '#94a3b8',
